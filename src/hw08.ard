@@ -1,7 +1,16 @@
+\import Algebra.Meta
+\import Arith.Nat
+\import Combinatorics.Factorial
 \import Data.Bool
 \import Data.List \hiding (headDef)
+\import Logic
+\import Paths.Meta
 \import hw07
+\import lect07
 \import lect08
+\import Paths
+\import Function.Meta
+\import Meta
 \import Order.LinearOrder
 \open LinearOrder
 
@@ -9,6 +18,41 @@
 --    * filter p xs является подсписком xs
 --    * Все элементы filter p xs удовлетворяют предикату p
 --    * Любой подсписок xs с тем же свойством является подсписком filter p xs
+
+\func first-prop => filter-sublist
+
+\func AllSatisfy {A : \Type} (p : A -> Bool) (xs : List A)
+  => \Pi (x : A) -> In x xs -> p x = true
+
+\func second-prop {A : \Type} (xs : List A) (p : A -> Bool)
+  : AllSatisfy p (filter p xs) \elim xs
+  | nil => \lam _ i => \case i \with {}
+  | h :: xs => cases (p h arg addPath) \with {
+    | false, q => second-prop xs p
+    | true, q => \lam x i => \case i \with {
+      | in-head e => inv (pmap p e) *> q
+      | in-tail j => second-prop xs p x j
+    }
+  }
+
+\func third-prop {A : \Type} (xs : List A) (p : A -> Bool)
+                 (sub : List A)
+                 (in : Sublist sub xs)
+                 (sat : AllSatisfy p sub)
+  : Sublist sub (filter p xs) \elim xs, sub, in
+  | xs, nil, nil-sublist => nil-sublist
+  | h :: xs, x :: sub, head-eq e s =>
+    \have
+      | sat-tail : AllSatisfy p sub => \lam z member => sat z (in-tail member)
+      | ih : Sublist sub (filter p xs) => third-prop xs p sub s sat-tail
+      | accepted : p h = true => inv (pmap p e) *> sat x (in-head idp)
+    \in rewrite accepted $ head-eq e ih
+  | h :: xs, sub, head-skip s =>
+    \have ih => third-prop xs p sub s sat
+    \in cases (p h) \with {
+      | false => ih
+      | true => head-skip ih
+    }
 
 -- 2. Докажите, что Perm l1 l2 тогда и только тогда, когда Insertion.sort l1 = Insertion.sort l2
 
@@ -20,18 +64,120 @@
 -- 4. Определите факториал через хвостовую рекурсию
 --    Докажите, что он равен обычному определению факториала
 
+\func fact (n : Nat) => aux n 1
+  \where {
+    \func aux (n acc : Nat) : Nat \elim n
+      | 0 => acc
+      | suc n => aux n (acc Nat.* (suc n))
+  }
+
+\func fac-lem (n acc : Nat) : fact.aux n acc = acc Nat.* fac n \elim n
+  | 0 => idp
+  | suc n => fac-lem n (acc Nat.* suc n) *> NatSemiring.*-assoc
+
+\func f-proof (n : Nat) : fact n = fac n => fac-lem n 1 *> NatSemiring.ide-left
+
 -- 5. Определите функцию, которая проверяет правильность скобочной последовательности
 --    Докажите ее корректность
 
 \data Paren | Left | Right
 
-\func isBalanced (xs : List Paren) : Bool
-  => {?}
+\func isBalanced (xs : List Paren) : Bool => aux xs 0
+  \where {
+    \func aux (xs : List Paren) (bal : Nat) : Bool \elim xs, bal
+      | nil, 0 => true
+      | nil, suc bal => false
+      | Left :: xs, bal => aux xs (suc bal)
+      | Right :: xs, 0 => false
+      | Right :: xs, suc bal => aux xs bal
+
+    \func aux-append (ys zs : List Paren)
+                     (bal : Nat)
+                     (p : isBalanced.aux ys bal = true)
+      : isBalanced.aux (ys ++ zs) bal = isBalanced zs \elim ys, bal
+      | nil, 0 => idp
+      | nil, suc bal => \case p \with {}
+      | Left :: ys, bal => aux-append ys zs (suc bal) p
+      | Right :: ys, 0 => \case p \with {}
+      | Right :: ys, suc bal => aux-append ys zs bal p
+
+    \func aux-cons (ys : List Paren)
+                   (bal : Nat)
+                   (p : isBalanced.aux ys bal = true)
+      : aux (ys ++ Right :: nil) (suc bal) = true \elim ys, bal
+      | nil, 0 => idp
+      | nil, suc bal => \case p \with {}
+      | Left :: ys, bal => aux-cons ys (suc bal) p
+      | Right Data.List.List.:: ys, 0 => \case p \with {}
+      | Right Data.List.List.:: ys, suc bal => aux-cons ys bal p
+  }
 
 \data Balanced (xs : List Paren) \with
   | nil => nil-balanced
   | :: Left xs => cons-balanced {ys : List Paren} (Balanced ys) (xs = ys ++ Right :: nil)
   | xs => append-balanced {ys zs : List Paren} (Balanced ys) (Balanced zs) (xs = ys ++ zs)
 
-\func isBalanced-correct (xs : List Paren) : (isBalanced xs = true) <-> Balanced xs
-  => {?}
+\func isBalanced-correct (xs : List Paren) : (isBalanced xs = true) hw07.<-> Balanced xs => (forward, backward)
+  \where {
+    \func split-helper (tail : List Paren) (bal : Nat) (p : isBalanced.aux tail (suc bal) = true)
+      : \Sigma
+        (u : List Paren)
+        (v : List Paren)
+        (up : isBalanced.aux u bal = true)
+        (vp : isBalanced v = true)
+        (pp : tail = u ++ (Right :: v))
+    \elim tail, bal
+      | nil, _ => \case p \with {}
+      | Left :: tail, bal =>
+        \have res => split-helper tail (suc bal) p
+        \in (Left :: res.1, res.2, res.3, res.4, pmap (Left ::) res.5)
+      | Right :: tail, 0 => (nil, tail, idp, p, idp)
+      | Right :: tail, suc bal =>
+        \have res => split-helper tail bal p
+        \in (Right :: res.1, res.2, res.3, res.4, pmap (Right ::) res.5)
+
+    \func f-helper {tail : List Paren} (p : isBalanced (Left :: tail) = true)
+      : \Sigma
+        (u : List Paren)
+        (v : List Paren)
+        (up : isBalanced u = true)
+        (vp : isBalanced v = true)
+        (pp : tail = u ++ (Right :: v))
+      => split-helper tail 0 p
+
+    \func forward-by-length (n : Nat) {xs : List Paren} (bound : length xs <= n) (p : isBalanced xs = true)
+      : Balanced xs \elim n, xs
+      | n, nil => nil-balanced
+      | 0, _ :: xs => \case (linarith : Empty) \with {}
+      | suc n, Right :: xs => \case p \with {}
+      | suc n, Left :: xs => -- [(u)v] case
+        \have
+          | res => f-helper p
+          | len : length xs = length res.1 Nat.+ suc (length res.2)
+            => pmap length res.5 *> length_++
+          | bound-u : length res.1 <= n => linarith
+          | bound-v : length res.2 <= n => linarith
+          | wrapped => cons-balanced (forward-by-length n {res.1} bound-u res.3) idp
+        \in append-balanced
+            wrapped
+            (forward-by-length n {res.2} bound-v res.4)
+            (pmap (Left ::) (res.5 *> inv ++-assoc))
+
+    \func forward {xs : List Paren} (p : isBalanced xs = true) : Balanced xs
+      => forward-by-length (length xs) {xs} LinearOrder.<=-refl p
+
+    \func b-helper-append {xs ys zs : List Paren}
+                          (p : isBalanced ys = true)
+                          (q : isBalanced zs = true)
+                          (c : xs = ys ++ zs)
+      : isBalanced xs = true => pmap isBalanced c *> isBalanced.aux-append ys zs 0 p *> q
+
+    \func b-helper-cons {ys : List Paren}
+                        (p : isBalanced ys = true)
+      : isBalanced (Left :: ys ++ Right :: nil) = true => isBalanced.aux-cons ys 0 p
+
+    \func backward {xs : List Paren} (q : Balanced xs) : isBalanced xs = true \elim xs, q
+      | nil, nil-balanced => idp
+      | Left :: xs, cons-balanced bal_ys xs_ys_r => rewrite xs_ys_r $ b-helper-cons (backward bal_ys)
+      | xs, append-balanced bal_ys bal_zs concat => b-helper-append (backward bal_ys) (backward bal_zs) concat
+  }
