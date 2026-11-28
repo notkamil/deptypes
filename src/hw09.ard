@@ -1,36 +1,74 @@
 \import Data.Maybe
-\import lect07 (Decide)
+\import Function.Meta
+\import Paths.Meta
+\import Paths
+\import hw07
+\import lect07 (Decide, yes, no)
 \import lect09
 
 
 -- 1. Докажите, что оператор >>= ассоциативен для Monad Term
 
 \func Term->>=-assoc {A B C : \Set} (t : Term A) (k : A -> Term B) (l : B -> Term C)
-  : (t >>= k) >>= l = {Term C} t >>= \lam a => k a >>= l => {?}
+  : (t >>= k) >>= l = {Term C} t >>= \lam a => k a >>= l => TermMonad.>>=-assoc t k l
 
 
 -- 2. Определите отношение многошаговой редукции на Term
 
-\func Red {V : \Set} (t s : Term V) : \Type => {?}
+\func Red {V : \Set} (t s : Term V) : \Type => ReflTransClosure Red1 t s
 
 
 -- 3. Стратегия редукции -- это функция, которая каждому терму сопоставляет либо некоторый терм,
 --    к которому он редуцируется за 1 шаг, либо доказательство, что таких термов нет
 --    Определите любую стратегию редукции
 
-\func strategy {V : \Set} (t : Term V) : Decide (\Sigma (s : Term V) (Red1 t s)) => {?}
+\func strategy {V : \Set} (t : Term V) : Decide (\Sigma (s : Term V) (Red1 t s)) \elim t
+  | unit => no (\case __.2 \with {})
+  | var v => no (\case __.2 \with {})
+  | app t1 t2 => \case strategy t1, strategy t2 \with {
+    | yes (t1', r1), _ => yes (app t1' t2, red-left r1 idp)
+    | _, yes (t2', r2) => yes (app t1 t2', red-right idp r2)
+    | no n1, no n2 => \case \elim t1, \elim n1 \with {
+      | unit, n1 => no (\lam step =>
+          \case step.1 \as s, step.2 : Red1 (app unit t2) s \with {
+            | s, beta body () _
+            | app s1 s2, red-left r idp => n1 (s1, r)
+            | app s1 s2, red-right idp r => n2 (s2, r)
+          })
+      | var v, n1 => no (\lam step =>
+          \case step.1 \as s, step.2 : Red1 (app (var v) t2) s \with {
+            | s, beta body () _
+            | app s1 s2, red-left r idp => n1 (s1, r)
+            | app s1 s2, red-right idp r => n2 (s2, r)
+          })
+      | app u w, n1 => no (\lam step =>
+          \case step.1 \as s, step.2 : Red1 (app (app u w) t2) s \with {
+            | s, beta body () _
+            | app s1 s2, red-left r idp => n1 (s1, r)
+            | app s1 s2, red-right idp r => n2 (s2, r)
+          })
+      | lam body, _ => yes (body >>= maybe t2 var, beta body idp idp)
+    }
+  }
+  | lam t => \case strategy t \with {
+    | yes (t', r) => yes (lam t', red-lam r)
+    | no n => no (\lam step =>
+        \case step.1 \as s, step.2 : Red1 (lam t) s \with {
+          | lam t', red-lam r => n (t', r)
+        })
+  }
 
 
 -- 4. Докажите, что подтермы достижимого терма достижимы
 
-\func appAccLeft {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 t
-  => {?}
+\func appAccLeft {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 t \elim a
+  | acc next => acc (\lam t' r => appAccLeft (next (app t' s) (red-left r idp)))
 
-\func appAccRight {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 s
-  => {?}
+\func appAccRight {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 s \elim a
+  | acc next => acc (\lam s' r => appAccRight (next (app t s') (red-right idp r)))
 
-\func subLamAcc {V : \Set} {t : Term (Maybe V)} (a : Acc Red1 (lam t)) : Acc Red1 t
-  => {?}
+\func subLamAcc {V : \Set} {t : Term (Maybe V)} (a : Acc Red1 (lam t)) : Acc Red1 t \elim a
+  | acc next => acc (\lam t' r => subLamAcc (next (lam t') (red-lam r)))
 
 
 -- 5. Докажите следующую обобщенную лемму о подстановке и выведите из нее обычную версию:
@@ -38,7 +76,13 @@
 
 \func substLem {U V : \Set} (ctx : U -> Type) (b : Term U) (B : Type) (h : hasType ctx b B)
                (ctx' : V -> Type) (a : U -> Term V) (h' : \Pi (u : U) -> hasType ctx' (a u) (ctx u))
-  : hasType ctx' (b >>= a) B => {?}
+  : hasType ctx' (b >>= a) B \elim b, B, h
+  | unit, Unit, unit-type => unit-type
+  | var v, B, var-type p => rewrite (inv p) $ h' v
+  | app b1 b2, B, app-type A h1 h2 => app-type A
+      (substLem ctx b1 (Arr A B) h1 ctx' a h')
+      (substLem ctx b2 A h2 ctx' a h')
+  | lam b, Arr B1 B2, lam-type h => {?}
 
 \func substLem1 => {?}
 

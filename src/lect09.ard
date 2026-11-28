@@ -51,6 +51,14 @@
   | app t1 t2 => app (termMap f t1) (termMap f t2)
   | lam t => lam $ termMap (fmap f) t
 
+\func termMap-comp {A B C : \Set} (s : Term A) (f : A -> B) (g : B -> C)
+  : termMap g (termMap f s) = termMap (\lam a => g (f a)) s \elim s
+  | unit => idp
+  | var v => idp
+  | app s1 s2 => pmap2 app (termMap-comp s1 f g) (termMap-comp s2 f g)
+  | lam s => pmap lam $ termMap-comp s (fmap f) (fmap g)
+      *> pmap (\lam rename => termMap rename s) (ext (\lam v => cases v idp))
+
 {-
 -- Это некорректное определение termMap just
 \func lift {A : \Set} (t : Term A) : Term (Maybe A) \elim t
@@ -87,7 +95,46 @@
     | app t1 t2 => pmap2 app (return-right t1) (return-right t2)
     | lam t => pmap lam $ pmap (t >>=) liftM_var *> return-right t
   }
-  | >>=-assoc => {?} -- это упражнение
+  | >>=-assoc {A B C : \Set} (t : Term A) (k : A -> Term B) (l : B -> Term C)
+    : (t >>= k) >>= l = {Term C} t >>= \lam a => k a >>= l \elim t {
+    | unit => idp
+    | var v => idp
+    | app t1 t2 => pmap2 app (>>=-assoc t1 k l) (>>=-assoc t2 k l)
+    | lam t => pmap lam $ >>=-assoc t (liftM k) (liftM l) *> pmap (t >>=) (liftM-compose k l)
+  }
+  \where {
+    \func map-bind {A B C : \Set} (s : Term A) (f : A -> B) (k : B -> Term C)
+      : termMap f s >>= k = s >>= \lam a => k (f a) \elim s
+      | unit => idp
+      | var v => idp
+      | app s1 s2 => pmap2 app (map-bind s1 f k) (map-bind s2 f k)
+      | lam s => pmap lam $ map-bind s (fmap f) (liftM k)
+          *> pmap (s >>=) (ext (\lam v => cases v idp))
+
+    \func bind-map {A B C : \Set} (s : Term A) (k : A -> Term B) (f : B -> C)
+      : termMap f (s >>= k) = s >>= \lam a => termMap f (k a) \elim s
+      | unit => idp
+      | var v => idp
+      | app s1 s2 => pmap2 app (bind-map s1 k f) (bind-map s2 k f)
+      | lam s => pmap lam $ bind-map s (liftM k) (fmap f)
+          *> pmap (s >>=) (ext (\lam v => \case \elim v \with {
+             | nothing => idp
+             | just a => termMap-comp (k a) just (fmap f) *> inv (termMap-comp (k a) f just)
+            }))
+
+    \func liftM-compose {A B C : \Set} (k : A -> Term B) (l : B -> Term C)
+      : (\lam v => liftM k v >>= liftM l) = liftM (\lam a => k a >>= l)
+      => ext liftM-compose-at
+    \where {
+      \func liftM-compose-at (v : Maybe A)
+        : liftM k v >>= liftM l = liftM (\lam a => k a >>= l) v \elim v
+        | nothing => idp
+        | just a => weaken-bind (k a) l
+      \func weaken-bind {A B : \Set} (s : Term A) (l : A -> Term B)
+        : termMap just s >>= liftM l = termMap just (s >>= l)
+        => map-bind s just (liftM l) *> inv (bind-map s l just)
+    }
+  }
 
 -- Отношение одношаговой редукции:
 -- * app (lam f) a ~> f[a]
